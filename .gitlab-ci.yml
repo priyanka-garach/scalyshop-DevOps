@@ -1,0 +1,200 @@
+image: alpine:latest
+
+variables:
+  AUTO_BUILD_IMAGE_VERSION: 'v4.3.0'
+  DOCKER_HOST: tcp://0.0.0.0:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ''
+
+stages:
+  - build
+  # - test
+  - deploy
+
+
+build-job:
+  stage: build
+  image: '${CI_TEMPLATE_REGISTRY_HOST}/gitlab-org/cluster-integration/auto-build-image:${AUTO_BUILD_IMAGE_VERSION}'
+  services:
+    - name: 'docker:20.10.12-dind'
+      command: ['--tls=false', '--host=tcp://0.0.0.0:2375']
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY    
+  script:
+    - |
+      if [[ -z "$CI_COMMIT_TAG" ]]; then
+        export CI_APPLICATION_REPOSITORY=${CI_APPLICATION_REPOSITORY:-$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG}
+        export CI_APPLICATION_TAG=${CI_APPLICATION_TAG:-$CI_COMMIT_SHA}
+      else
+        export CI_APPLICATION_REPOSITORY=${CI_APPLICATION_REPOSITORY:-$CI_REGISTRY_IMAGE}
+        export CI_APPLICATION_TAG=${CI_APPLICATION_TAG:-$CI_COMMIT_TAG}
+      fi
+    - /build/build.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == "Bayson"
+  artifacts:
+    reports:
+      dotenv: gl-auto-build-variables.env
+
+# test-job:
+#   TODO  
+# test-job:
+#   stage: test
+#   image: node:22
+#   services:
+#     - name: 'mongo:8.0.4'
+#       alias: mongo
+#   variables:
+#     MONGODB_URI: "mongodb://scaly:Group5@my-release-mongodb.default.svc.cluster.local:27017/scalyDB"
+#     MONGODB_HOST: "my-release-mongodb.default.svc.cluster.local"
+#     MONGODB_DB: "scalyDB"
+#     MONGODB_USER: "scaly"
+#     MONGODB_PW: "Group5"
+#   before_script:
+#     - npm install --engine-strict
+#     - npm install --save-dev supertest jest --engine-strict
+#   script:
+#     - timeout 300 node -e "
+#         const request = require('supertest');
+#         const app = require('./app');
+#         const server = app.listen(0);
+
+#         request(app)
+#           .get('/api/serverstatus')
+#           .expect('Content-Type', /json/)
+#           .expect(200)
+#           .expect(res => {
+#             if (!res.body.message.includes('Your server appears to be live and well')) {
+#               throw new Error('/api/serverstatus test failed');
+#             }
+#           })
+#           .end((err) => {
+#             if (err) {
+#               server.close();
+#               throw err;
+#             }
+#             console.log('/api/serverstatus test passed');
+            
+#             request(app)
+#               .post('/api/error?statuscode=404')
+#               .expect(404)
+#               .end((err) => {
+#                 if (err) {
+#                   server.close();
+#                   throw err;
+#                 }
+#                 console.log('/api/error test passed');
+#                 server.close();
+#                 process.exit(0);
+#               });
+#           });
+#       "
+#   rules:
+#     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH  # only run on the default branch
+
+
+
+# deploy-helm:
+#   TODO
+deploy-helm:
+  # This job runs in the 'deploy' stage of GitLab CI/CD
+  stage: deploy
+
+  # Using Alpine Linux as the base image (lightweight and minimal)
+  image: alpine:latest
+
+  script:
+    # 1️. Install required tools (Necessary)
+    - echo "Installing required tools for Helm deployment..."
+    - apk add --no-cache curl bash tar
+    - apk add --no-cache kubectl
+    # - `curl`: Required to download Helm
+    # - `bash`: Ensures compatibility with certain commands
+    # - `tar`: Used to extract the Helm package
+
+    # 2️. Download and install Helm v3.9.0 (Necessary)
+    - echo "Downloading Helm v3.9.0..."
+    - curl -sSL https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz | tar xzv
+    # - `curl -sSL <URL>`: Fetches the Helm package
+    # - `tar xzv`: Extracts the package
+
+    - mv linux-amd64/helm /usr/local/bin/helm
+    - chmod +x /usr/local/bin/helm
+    # - Moves the Helm binary to `/usr/local/bin/`, making it accessible
+    # - `chmod +x`: Grants execution permission to Helm
+
+    # 3️. Verify Helm installation
+    - echo "Checking Helm version..."
+    - helm version
+    # - Ensures Helm is installed correctly
+
+    # 4️. Create Kubernetes namespace (Necessary)
+    - echo "Creating namespace 'scalyshoppriyanka' if it does not exist..."
+    - kubectl create namespace scalyshoppriyanka || echo "Namespace already exists"
+    # - `kubectl create namespace scalyshop`: Creates the namespace if not present
+    # - If the namespace already exists, an error would occur, so `|| echo` suppresses the failure message
+
+    # 5️. Set Helm-related environment variables (Necessary)
+    - export NAMESPACE="scalyshoppriyanka"
+    - export RELEASE="scalyshop-backend-pri"
+    - export CHART_DIR="./backend-chart"
+    - export CHART_VERSION="1.0.0"
+    # - `NAMESPACE="scalyshop"`: Defines the Kubernetes namespace
+    # - `RELEASE="scalyshop-backend"`: Helm release name
+    # - `CHART_DIR="./backend-chart"`: Directory where the Helm Chart is stored
+    # - `CHART_VERSION="1.0.0"`: Defines the chart version
+
+    # 6️. Package Helm Chart (Necessary)
+    - echo "Packaging Helm Chart..."
+    - helm package backend-chart
+    - export CHART_PACKAGE="./backend-chart-${CHART_VERSION}.tgz"
+    # - Packages the Helm chart from `backend-chart` into a `.tgz` archive
+    # - `-d .`: Saves the package in the current directory
+    # - `--version`: Specifies the Helm Chart version
+    # - `--app-version`: Sets the application version
+    # - `CHART_PACKAGE` stores the path to the packaged Helm Chart
+
+    # 7️. Check if the Helm release already exists (Necessary)
+    - echo "Checking whether the release 'scalyshop-backend' exists..."
+
+    # 8️. If the release exists, perform a Helm upgrade (Necessary)
+    # - `helm upgrade`: Upgrades the existing `scalyshop-backend` deployment
+    # - `--set image.repository=$CI_REGISTRY_IMAGE/main`
+    #   - Sets the image repository (from CI/CD environment variables)
+    # - `--set image.tag=$CI_APPLICATION_TAG`
+    #   - Ensures the deployment uses the latest image version
+
+    # 9️. If the release does not exist, perform a Helm install (Necessary)
+    # - `helm install`: Installs `scalyshop-backend`
+    # - `--create-namespace`: Ensures the namespace is created before deployment
+    - if helm status scalyshop-backend --namespace ${NAMESPACE} > /dev/null 2>&1; then
+
+        echo "Release exists, performing upgrade..."
+        helm upgrade scalyshop-backend ${CHART_PACKAGE} --namespace ${NAMESPACE} \
+          --set image.repository=$CI_REGISTRY_IMAGE/bayson \
+          --set image.tag=$CI_APPLICATION_TAG;
+
+      else
+        echo "Release does not exist, performing installation..."
+        helm install scalyshop-backend ${CHART_PACKAGE} --namespace ${NAMESPACE} --create-namespace \
+          --set image.repository=$CI_REGISTRY_IMAGE/bayson \
+          --set image.tag=$CI_APPLICATION_TAG;
+
+
+      fi      
+
+    # Verify if the backend pod starts successfully
+    - echo "Checking if the backend pod is running..."
+    - sleep 10  # Give some time for the pod to start
+    - if kubectl get pods --namespace ${NAMESPACE} | grep "${RELEASE}" | grep "Running"; then
+        echo "Backend pod is running successfully!";
+      else
+        echo "Backend pod failed to start!";
+        kubectl get pods --namespace ${NAMESPACE};
+        exit 1;
+      fi
+
+  # 10. Deployment rule: Only trigger on the default branch (Optional but recommended)
+  rules:
+    - if: $CI_COMMIT_BRANCH == "Bayson"
+    # - Ensures that deployment only runs on the main branch (e.g., `main` or `master`)

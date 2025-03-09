@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: scalyshop-backend-pri # The service name is scalyshop-backend , and the service can be accessed by this name.
+  namespace: scalyshoppriyanka
+spec:
+  selector:
+    app: scalyshop-backend-pri # Only Pods with label app: scalyshop-backend will be routed to this service.
+  ports:
+    - port: 5000        # Externally exposed port
+      targetPort: 5045  # The port on which the back-end container listens internally
+      protocol: TCP
+  type: LoadBalancer # Ensures traffic is distributed to multiple backend containers (if the number of replicas increases), enhancing the availability and scalability of the application

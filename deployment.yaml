@@ -1,0 +1,50 @@
+apiVersion: apps/v1 # Indicates using Kubernetes apps API version v1, which is the standard API version used for deploying applications.
+kind: Deployment # Assign a name to this Deployment resource, and Kubernetes will identify the Deployment by that name.
+metadata:
+  name: scalyshop-backend-pri # Specify a name for this Deployment resource
+  namespace: scalyshoppriyanka # Specify the namespace of the resource
+  labels:
+    app: scalyshop-backend-pri # Used to tag resources
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scalyshop-backend-pri # Select the pods that match the label app: scalyshop-backend-pri
+  template:
+    metadata:
+      labels:
+        app: scalyshop-backend-pri # Ensure the pod also has tag scalyshop-backend-pri, in order to match the selector
+    spec:
+      containers:
+      - name: backend # Assign a name to the container to identify the container in the process of logging, monitoring, and debugging.
+        image: registry.git.chalmers.se/courses/dat490/students/2025/dat490-2025-5/scalyshop-v2-backend/backend:latest
+        ports:
+          - containerPort: 5045
+        imagePullPolicy: Always # Ensure the image is pulled each time the deployment is performed, rather than using the cached image.
+
+        env: # Specifies the environment variables required by the container, which are used to configure the application's runtime environment.
+        # Configure MongoDB connectivity via environment variables (make sure it's consistent with the MongoDB deployed with T2.4)
+          - name: MONGO_URI
+            value: "mongodb://scaly:Group5@my-release-mongodb.default.svc.cluster.local:27017/scalyDB"
+          - name: MONGODB_HOST
+            value: "my-release-mongodb.default.svc.cluster.local"
+          - name: MONGODB_DB 
+            value: "scalyDB"
+          - name: MONGODB_USER
+            value: "scaly"
+          - name: MONGODB_PW
+            value: "Group5"
+          - name: REDIS_HOST
+            value: "my-release-redis-master.scalyshop.svc.cluster.local"
+          - name: REDIS_PORT
+            value: "6379"
+          # If the backend needs other environment variables, you can also add them here
+        livenessProbe: # Used to check if the container is alive: if the container does not respond or is deadlocked, Kubernetes will restart the container.
+          httpGet:
+            path: /api/serverstatus
+            port: 5045  # Note: Use 5045 when exposing the Kubernetes layer for back-end services.
+          initialDelaySeconds: 5 # After the container starts, wait for 5 seconds before starting to detect.
+          periodSeconds: 10 # Every 10 seconds, perform a health check.
+          failureThreshold: 3 # After 3 consecutive failures, it is considered that the container is unhealthy and is restarted.
+      imagePullSecrets: # Provide credentials for accessing a private image repository
+      - name: gitlab-registry-secret
