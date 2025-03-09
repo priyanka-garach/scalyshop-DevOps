@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scalyshop-frontend
+  namespace: scalyshop-manifest
+  labels:
+    app: scalyshop-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scalyshop-frontend
+  template:
+    metadata:
+      labels:
+        app: scalyshop-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: registry.git.chalmers.se/courses/dat490/students/2025/dat490-2025-5/scalyshop-v2-frontend/frontend:latest
+        ports:
+          - containerPort: 5173
+        imagePullPolicy: Always
+
+        env:
+          - name: VITE_BACKEND_HOST
+            value: "35.228.104.236"
+          - name: VITE_BACKEND_PORT
+            value: "5000"
+      imagePullSecrets:
+      - name: gitlab-registry-secret

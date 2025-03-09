@@ -1,0 +1,73 @@
+image: alpine:latest
+
+variables:
+  AUTO_BUILD_IMAGE_VERSION: 'v4.3.0'
+  DOCKER_HOST: tcp://0.0.0.0:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ''
+
+stages:
+  - build
+  # - test
+  - deploy
+
+build-job:
+  stage: build
+  image: '${CI_TEMPLATE_REGISTRY_HOST}/gitlab-org/cluster-integration/auto-build-image:${AUTO_BUILD_IMAGE_VERSION}'
+  services:
+    - name: 'docker:20.10.12-dind'
+      command: ['--tls=false', '--host=tcp://0.0.0.0:2375']
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY    
+  script:
+    - |
+      if [[ -z "$CI_COMMIT_TAG" ]]; then
+        export CI_APPLICATION_REPOSITORY=${CI_APPLICATION_REPOSITORY:-$CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG}
+        export CI_APPLICATION_TAG=${CI_APPLICATION_TAG:-$CI_COMMIT_SHA}
+      else
+        export CI_APPLICATION_REPOSITORY=${CI_APPLICATION_REPOSITORY:-$CI_REGISTRY_IMAGE}
+        export CI_APPLICATION_TAG=${CI_APPLICATION_TAG:-$CI_COMMIT_TAG}
+      fi
+    - /build/build.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  artifacts:
+    reports:
+      dotenv: gl-auto-build-variables.env
+
+# test-job:
+#   TODO  
+
+# deploy-helm:
+#   TODO
+deploy-helm:
+  stage: deploy
+  image: alpine:latest
+  script:
+    - echo "Install Helm deployment required tools..."
+    - apk add --no-cache curl bash tar
+    - echo "Download Helm v3.9.0..."
+    - curl -sSL https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz | tar xzv
+    - mv linux-amd64/helm /usr/local/bin/helm
+    - chmod +x /usr/local/bin/helm
+    - echo "Helm version:"
+    - helm version
+    - echo "Create namespace scalyshop (if not exist)..."
+    - kubectl create namespace scalyshop || echo "Namespace already exists"
+    - export NAMESPACE="scalyshop"
+    - export RELEASE="scalyshop-frontend"       # release name should match Service/Deployment name
+    - export CHART_DIR="./frontend-chart"       # Helm Chart category
+    - export CHART_VERSION="1.0.0"
+    - echo "Packaging Helm Chart..."
+    - helm package ${CHART_DIR} -d . --version ${CHART_VERSION} --app-version ${CHART_VERSION}
+    - export CHART_PACKAGE="./frontend-chart-${CHART_VERSION}.tgz"
+    - echo "Check whether release scalyshop-frontend exists or not..."
+    - if helm status scalyshop-frontend --namespace ${NAMESPACE} > /dev/null 2>&1; then
+        echo "Release exists, conduct upgrade...";
+        helm upgrade scalyshop-frontend ${CHART_PACKAGE} --namespace ${NAMESPACE} --set image.repository=$CI_REGISTRY_IMAGE/main --set image.tag=$CI_APPLICATION_TAG;
+      else
+        echo "Release not exist, conduct installation ...";
+        helm install scalyshop-frontend ${CHART_PACKAGE} --namespace ${NAMESPACE} --set image.repository=$CI_REGISTRY_IMAGE/main --set image.tag=$CI_APPLICATION_TAG;
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

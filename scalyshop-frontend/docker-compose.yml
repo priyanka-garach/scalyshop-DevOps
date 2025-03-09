@@ -1,0 +1,43 @@
+services:
+  mongo:
+    image: mongo:8.0.4
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - scalyshop-app
+
+  backend:
+    container_name: mybackend
+    build: ../scalyshop-v2-backend
+    ports:
+      - "5045:5045"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/scalyDB  # Keep using `mongo` here
+      - MONGODB_HOST=mongo
+    depends_on:
+      - mongo
+    networks:
+      - scalyshop-app
+
+  frontend:
+    container_name: myfrontend
+    build: .
+    ports:
+      - "5046:5046"
+    environment:
+      - VITE_BACKEND_HOST=backend
+      - VITE_BACKEND_PORT=5045
+    depends_on:
+      - backend
+    networks:
+      - scalyshop-app
+
+volumes:
+  mongo_data:
+
+networks:
+  scalyshop-app:
+    driver: bridge
